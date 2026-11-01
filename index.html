@@ -18,40 +18,43 @@
  .cell.o{color:var(--acc2);text-shadow:0 0 24px rgba(255,92,138,.6)}
  .cell.win{animation:pop .4s ease}
  @keyframes pop{50%{transform:scale(1.12);background:#2b2b45}}
- .status{text-align:center;margin:18px 0 10px;font-size:18px}
+ .status{text-align:center;margin:18px 0 10px;font-size:18px;min-height:26px}
  .status b{color:var(--acc)}
  .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
  button{background:var(--acc);color:#fff;border:0;padding:10px 16px;border-radius:10px;font-size:14px;cursor:pointer;font-weight:600}
  button.ghost{background:#2b2b3d}
- button:disabled{opacity:.45;cursor:not-allowed}
  .scores{margin-top:22px;background:var(--card);border:1px solid #2b2b3d;border-radius:14px;padding:14px 16px}
  .scores h3{margin:0 0 10px;font-size:14px;color:#8f8fa8;text-transform:uppercase;letter-spacing:1px}
  .srow{display:flex;justify-content:space-between;padding:5px 0;font-size:14px;border-bottom:1px solid #26263a}
  .srow:last-child{border:0}
  .srow span:last-child{font-weight:700;color:var(--acc)}
  input{background:#23233a;border:1px solid #33334d;color:var(--fg);border-radius:10px;padding:8px 12px;font-size:14px;text-align:center}
- #code{width:190px;letter-spacing:2px;text-transform:uppercase}
+ #code{width:190px;letter-spacing:1px}
  .names{display:flex;gap:8px;justify-content:center;margin-bottom:14px}
  .names input{width:130px}
- .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#2b2b45;padding:10px 18px;border-radius:12px;font-size:14px;opacity:0;transition:.3s}
+ .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#2b2b45;padding:10px 18px;border-radius:12px;font-size:14px;opacity:0;transition:.3s;z-index:9}
  .toast.show{opacity:1}
- .tag{font-size:12px;color:#8f8fa8}
+ .tag{font-size:12px;color:#8f8fa8;text-align:center;display:block}
+ .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#44445c;margin-right:6px;vertical-align:middle}
+ .dot.on{background:#3ddc84;box-shadow:0 0 8px #3ddc84}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Tris 🎲</h1>
-  <div class="sub">The Social Friends — multiplayer online (peer-to-peer)</div>
+  <div class="sub">The Social Friends — online via WebRTC (relay MQTT)</div>
 
   <div class="row">
     <input id="myname" placeholder="Il tuo nome" maxlength="14">
-    <input id="code" placeholder="CODICE STANZA" maxlength="16">
   </div>
   <div class="row">
-    <button id="hostBtn" onclick="host()">Crea stanza</button>
-    <button class="ghost" id="joinBtn" onclick="join()">Entra</button>
+    <input id="code" placeholder="CODICE STANZA" maxlength="20">
   </div>
-  <div class="row"><span class="tag" id="roomTag"></span></div>
+  <div class="row">
+    <button onclick="joinRoom()">Entra / crea stanza</button>
+    <button class="ghost" onclick="copyCode()">Copia codice</button>
+  </div>
+  <div class="row"><span class="tag"><span class="dot" id="dot"></span><span id="roomTag">Non connesso</span></span></div>
 
   <div class="names">
     <input id="px" placeholder="Giocatore X" maxlength="12">
@@ -59,7 +62,7 @@
   </div>
 
   <div class="board" id="board"></div>
-  <div class="status" id="status">Crea una stanza o entra con il codice</div>
+  <div class="status" id="status">Entra con un codice stanza per iniziare</div>
   <div class="row">
     <button class="ghost" onclick="newGame()">Nuova partita</button>
     <button class="ghost" onclick="resetScores()">Azzera punteggi</button>
@@ -74,14 +77,18 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script>
-const W=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-let board=Array(9).fill(''), turn='x', over=false, myMark='', isHost=false, conn=null, peer=null;
-let names={x:'Giocatore X',o:'Giocatore O'}, scores={x:0,o:0,d:0}, stateMsg='Crea una stanza o entra con il codice';
+<script type="module">
+import {joinRoom, selfId} from "https://cdn.jsdelivr.net/npm/trystero@0.21.0/mqtt/+esm";
 
-function el(id){return document.getElementById(id)}
-function toast(t){const e=el('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1800)}
+const W=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const APP='tris-social-friends-v1';
+let room=null, myMark='', hostId='', peerId=null;
+let board=Array(9).fill(''), turn='x', over=false;
+let names={x:'Giocatore X',o:'Giocatore O'}, scores={x:0,o:0,d:0};
+let stateMsg='Entra con un codice stanza per iniziare';
+
+const el=id=>document.getElementById(id);
+function toast(t){const e=el('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2000)}
 function myName(){return el('myname').value.trim()||'Giocatore'}
 function checkWin(b){for(const w of W){const[a,c,d]=w;if(b[a]&&b[a]===b[c]&&b[c]===b[d])return w}return null}
 
@@ -89,77 +96,73 @@ function render(){
   const b=el('board');b.innerHTML='';
   for(let i=0;i<9;i++){
     const c=document.createElement('div');
-    c.className='cell '+(board[i]||'');c.textContent=board[i]==='x'?'✕':board[i]==='o'?'◯':'';
-    c.onclick=()=>play(i);b.appendChild(c);
+    c.className='cell '+(board[i]||'');
+    c.textContent=board[i]==='x'?'✕':board[i]==='o'?'◯':'';
+    c.onclick=()=>play(i);
+    b.appendChild(c);
   }
   el('lnx').textContent=names.x;el('lno').textContent=names.o;
   el('scx').textContent=scores.x;el('sco').textContent=scores.o;el('scd').textContent=scores.d;
   el('status').innerHTML=stateMsg;
+  el('dot').className='dot'+(room?' on':'');
 }
 
-function host(){
-  if(peer){peer.destroy();peer=null}
-  isHost=true;
-  peer=new Peer();
-  peer.on('open',id=>{
-    el('code').value=id;
-    el('roomTag').textContent='Stanza '+id+' — passa questo codice al tuo amico';
-    stateMsg='In attesa dell\'avversario…';
-    peer.on('connection',c=>{conn=c;wire(c)});
-    render();
-  });
-  peer.on('error',e=>{toast('Errore: '+e.type);stateMsg='Errore: '+e.type;render()});
-}
+function connect(code){
+  try{ if(room&&room.leave) room.leave(); }catch(e){}
+  room=joinRoom({appId:APP}, code);
+  const [sendMove,getMove]=room.makeAction('move');
+  const [sendState,getState]=room.makeAction('state');
+  window.__sendMove=sendMove; window.__sendState=sendState;
 
-function join(){
-  const code=el('code').value.trim();
-  if(!code){toast('Inserisci il codice stanza');return}
-  if(peer){peer.destroy();peer=null}
-  isHost=false;
-  peer=new Peer();
-  peer.on('open',()=>{
-    const c=peer.connect(code,{reliable:true});
-    conn=c;
-    c.on('open',()=>{
-      el('roomTag').textContent='Connesso a '+code;
-      c.send({t:'hello',name:myName()});
-    });
-    wire(c);
-  });
-  peer.on('error',e=>{toast('Errore: '+e.type);stateMsg='Errore: '+e.type;render()});
-}
-
-function wire(c){
-  c.on('data',m=>{
-    if(!m||!m.t)return;
-    if(m.t==='hello'){
-      names.x=myName();names.o=m.name;
-      el('px').value=names.x;el('po').value=names.o;
-      myMark='x';
-      stateMsg='In attesa del primo turno… <b>'+names.x+'</b> gioca';
-      send({t:'state',board,turn,over,names,scores,msg:stateMsg});
+  room.onPeerJoin(id=>{
+    peerId=id;
+    if(!hostId){ hostId=id; myMark='x'; names.x=myName(); names.o='Avversario';
+      stateMsg='Avversario connesso! In attesa che si presenti.';
       render();
-    } else if(m.t==='state'){
-      board=m.board;turn=m.turn;over=m.over;names=m.names;scores=m.scores;stateMsg=m.msg||stateMsg;
-      el('px').value=names.x;el('po').value=names.o;
-      render();
-    } else if(m.t==='move'){
-      board=m.board;turn=m.turn;over=m.over;stateMsg=m.msg;render();
-    } else if(m.t==='newgame'){
-      board=Array(9).fill('');turn='x';over=false;stateMsg='Nuova partita! <b>'+names.x+'</b> gioca';render();
-    } else if(m.t==='reset'){
-      scores={x:0,o:0,d:0};render();
+    }
+    if(hostId===id && myMark==='x'){
+      sendState({board,turn,over,names,scores,msg:stateMsg,mark:'x'});
+      sendState({board,turn,over,names,scores,msg:stateMsg,mark:'o'});
     }
   });
-  c.on('close',()=>{stateMsg='Avversario disconnesso';render()});
-  c.on('error',()=>{toast('Errore connessione')});
+
+  room.onPeerLeave(id=>{
+    if(id===peerId){ peerId=null; stateMsg='Avversario uscito dalla stanza'; render(); }
+  });
+
+  getState((d,id)=>{
+    if(d.mark){ myMark=d.mark; names.x=d.names.x; names.o=d.names.o; el('px').value=names.x; el('po').value=names.o; }
+    board=d.board;turn=d.turn;over=d.over;scores=d.scores;stateMsg=d.msg||stateMsg;
+    if(!hostId) hostId=id;
+    render();
+  });
+
+  getMove((d,id)=>{
+    board=d.board;turn=d.turn;over=d.over;if(d.scores)scores=d.scores;stateMsg=d.msg;render();
+  });
+
+  el('roomTag').textContent='Stanza «'+code+'» — ID '+selfId.slice(0,8);
+  stateMsg='In attesa dell\'avversario… condividi il codice!';
+  render();
+  toast('Connesso alla stanza '+code);
 }
 
-function send(m){ if(conn&&conn.open) conn.send(m); }
+function joinRoom(){
+  const code=(el('code').value.trim()||'').replace(/\s+/g,'-');
+  if(!code){toast('Scrivi un codice stanza');return}
+  el('code').value=code;
+  connect(code);
+}
+function copyCode(){
+  const c=el('code').value.trim();
+  if(!c){toast('Nessun codice');return}
+  navigator.clipboard?.writeText(c).then(()=>toast('Codice copiato!'),()=>toast(c));
+}
 
 function play(i){
+  if(!room){toast('Entra in una stanza prima');return}
   if(over||board[i])return;
-  if(!myMark){toast('Entra in una stanza prima di giocare');return}
+  if(!myMark){toast('Attendi l\'avversario');return}
   if(turn!==myMark){toast('Non è il tuo turno');return}
   board[i]=myMark;
   const w=checkWin(board);
@@ -174,22 +177,26 @@ function play(i){
     turn=myMark==='x'?'o':'x';
     stateMsg='Turno di <b>'+(turn==='x'?names.x:names.o)+'</b>';
   }
-  send({t:'move',board,turn,over,msg:stateMsg});
+  window.__sendMove({board,turn,over,scores,msg:stateMsg});
   render();
 }
 
 function newGame(){
-  if(!myMark){toast('Entra in una stanza prima');return}
-  if(!isHost){toast('Solo chi ha creato la stanza può riavviare');return}
+  if(!room){toast('Entra in una stanza prima');return}
+  if(myMark!=='x'){toast('Solo il giocatore X può riavviare');return}
   board=Array(9).fill('');turn='x';over=false;
   stateMsg='Nuova partita! <b>'+names.x+'</b> gioca';
-  send({t:'newgame'});
+  window.__sendMove({board,turn,over,scores,msg:stateMsg});
   render();
 }
 function resetScores(){
-  if(!isHost){toast('Solo l\'host può azzerare');return}
-  scores={x:0,o:0,d:0};send({t:'reset'});render();
+  if(!room){toast('Entra in una stanza prima');return}
+  if(myMark!=='x'){toast('Solo X può azzerare');return}
+  scores={x:0,o:0,d:0};
+  window.__sendMove({board,turn,over,scores,msg:stateMsg});
+  render();
 }
+
 render();
 </script>
 </body>

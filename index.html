@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tris — The Social Friends</title>
+<title>Tris 🎲 — The Social Friends (online)</title>
 <style>
  :root{--bg:#12121a;--fg:#f3f3f7;--acc:#7c5cff;--acc2:#ff5c8a;--card:#1c1c28}
  *{box-sizing:border-box}
  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(1200px 600px at 50% -10%,#241f45,var(--bg));color:var(--fg);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
  .wrap{width:100%;max-width:520px}
- h1{margin:0 0 4px;font-size:26px;letter-spacing:.5px}
+ h1{margin:0 0 4px;font-size:26px}
  .sub{color:#8f8fa8;font-size:13px;margin-bottom:16px}
  .board{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:360px;margin:0 auto}
  .cell{aspect-ratio:1;border-radius:16px;background:var(--card);border:1px solid #2b2b3d;display:flex;align-items:center;justify-content:center;font-size:56px;font-weight:800;cursor:pointer;transition:.15s transform,.15s background;user-select:none}
@@ -23,31 +23,48 @@
  .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
  button{background:var(--acc);color:#fff;border:0;padding:10px 16px;border-radius:10px;font-size:14px;cursor:pointer;font-weight:600}
  button.ghost{background:#2b2b3d}
+ button:disabled{opacity:.45;cursor:not-allowed}
  .scores{margin-top:22px;background:var(--card);border:1px solid #2b2b3d;border-radius:14px;padding:14px 16px}
  .scores h3{margin:0 0 10px;font-size:14px;color:#8f8fa8;text-transform:uppercase;letter-spacing:1px}
  .srow{display:flex;justify-content:space-between;padding:5px 0;font-size:14px;border-bottom:1px solid #26263a}
  .srow:last-child{border:0}
  .srow span:last-child{font-weight:700;color:var(--acc)}
+ input{background:#23233a;border:1px solid #33334d;color:var(--fg);border-radius:10px;padding:8px 12px;font-size:14px;text-align:center}
+ #code{width:190px;letter-spacing:2px;text-transform:uppercase}
  .names{display:flex;gap:8px;justify-content:center;margin-bottom:14px}
- input{background:#23233a;border:1px solid #33334d;color:var(--fg);border-radius:10px;padding:8px 12px;font-size:14px;width:120px;text-align:center}
+ .names input{width:130px}
  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#2b2b45;padding:10px 18px;border-radius:12px;font-size:14px;opacity:0;transition:.3s}
  .toast.show{opacity:1}
+ .tag{font-size:12px;color:#8f8fa8}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Tris 🎲</h1>
-  <div class="sub">The Social Friends — pass & play sullo stesso schermo</div>
+  <div class="sub">The Social Friends — multiplayer online (peer-to-peer)</div>
+
+  <div class="row">
+    <input id="myname" placeholder="Il tuo nome" maxlength="14">
+    <input id="code" placeholder="CODICE STANZA" maxlength="16">
+  </div>
+  <div class="row">
+    <button id="hostBtn" onclick="host()">Crea stanza</button>
+    <button class="ghost" id="joinBtn" onclick="join()">Entra</button>
+  </div>
+  <div class="row"><span class="tag" id="roomTag"></span></div>
+
   <div class="names">
     <input id="px" placeholder="Giocatore X" maxlength="12">
     <input id="po" placeholder="Giocatore O" maxlength="12">
   </div>
+
   <div class="board" id="board"></div>
-  <div class="status" id="status"></div>
+  <div class="status" id="status">Crea una stanza o entra con il codice</div>
   <div class="row">
-    <button onclick="newGame()">Nuova partita</button>
+    <button class="ghost" onclick="newGame()">Nuova partita</button>
     <button class="ghost" onclick="resetScores()">Azzera punteggi</button>
   </div>
+
   <div class="scores">
     <h3>Classifica</h3>
     <div class="srow"><span id="lnx">X</span><span id="scx">0</span></div>
@@ -56,44 +73,124 @@
   </div>
 </div>
 <div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
-const LS='tris.v1';
-let board,turn,over,names,scores;
-function load(){try{const d=JSON.parse(localStorage.getItem(LS));if(d&&d.board)return d}catch(e){}
- return {board:Array(9).fill(''),turn:'x',over:false,names:{x:'Giocatore X',o:'Giocatore O'},scores:{x:0,o:0,d:0}}}
-function save(){localStorage.setItem(LS,JSON.stringify({board,turn,over,names,scores}))}
-function init(){const d=load();board=d.board;turn=d.turn;over=d.over;names=d.names;scores=d.scores;
- document.getElementById('px').value=names.x;document.getElementById('po').value=names.o;render()}
-function render(){const b=document.getElementById('board');
- b.innerHTML='';
- for(let i=0;i<9;i++){const c=document.createElement('div');
-  c.className='cell '+(board[i]||'');c.textContent=board[i]==='x'?'✕':board[i]==='o'?'◯':'';
-  c.onclick=()=>play(i);b.appendChild(c)}
- document.getElementById('lnx').textContent=names.x;
- document.getElementById('lno').textContent=names.o;
- document.getElementById('scx').textContent=scores.x;
- document.getElementById('sco').textContent=scores.o;
- document.getElementById('scd').textContent=scores.d;
- const st=document.getElementById('status');
- if(over){st.innerHTML=st.dataset.msg||''}
- else st.innerHTML='Turno di <b>'+(turn==='x'?names.x:names.o)+'</b>';
-}
 const W=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
-function checkWin(){for(const w of W){const[a,b,c]=w;if(board[a]&&board[a]===board[b]&&board[b]===board[c])return w}return null}
-function toast(t){const e=document.getElementById('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1800)}
-function play(i){if(over||board[i])return;board[i]=turn;
- const w=checkWin();
- const st=document.getElementById('status');
- if(w){over=true;scores[turn]++;st.dataset.msg='<b>'+(turn==='x'?names.x:names.o)+'</b> vince! 🎉';w.forEach(j=>document.querySelectorAll('.cell')[j].classList.add('win'));toast('Vittoria di '+(turn==='x'?names.x:names.o))}
- else if(board.every(x=>x)){over=true;scores.d++;st.dataset.msg='Pareggio! 🤝';toast('Pareggio!')}
- else turn=turn==='x'?'o':'x';
- save();render()}
-function newGame(){board=Array(9).fill('');turn='x';over=false;
- names.x=document.getElementById('px').value.trim()||'Giocatore X';
- names.o=document.getElementById('po').value.trim()||'Giocatore O';
- save();render();toast('Nuova partita!')}
-function resetScores(){scores={x:0,o:0,d:0};save();render()}
-init();
+let board=Array(9).fill(''), turn='x', over=false, myMark='', isHost=false, conn=null, peer=null;
+let names={x:'Giocatore X',o:'Giocatore O'}, scores={x:0,o:0,d:0}, stateMsg='Crea una stanza o entra con il codice';
+
+function el(id){return document.getElementById(id)}
+function toast(t){const e=el('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1800)}
+function myName(){return el('myname').value.trim()||'Giocatore'}
+function checkWin(b){for(const w of W){const[a,c,d]=w;if(b[a]&&b[a]===b[c]&&b[c]===b[d])return w}return null}
+
+function render(){
+  const b=el('board');b.innerHTML='';
+  for(let i=0;i<9;i++){
+    const c=document.createElement('div');
+    c.className='cell '+(board[i]||'');c.textContent=board[i]==='x'?'✕':board[i]==='o'?'◯':'';
+    c.onclick=()=>play(i);b.appendChild(c);
+  }
+  el('lnx').textContent=names.x;el('lno').textContent=names.o;
+  el('scx').textContent=scores.x;el('sco').textContent=scores.o;el('scd').textContent=scores.d;
+  el('status').innerHTML=stateMsg;
+}
+
+function host(){
+  if(peer){peer.destroy();peer=null}
+  isHost=true;
+  peer=new Peer();
+  peer.on('open',id=>{
+    el('code').value=id;
+    el('roomTag').textContent='Stanza '+id+' — passa questo codice al tuo amico';
+    stateMsg='In attesa dell\'avversario…';
+    peer.on('connection',c=>{conn=c;wire(c)});
+    render();
+  });
+  peer.on('error',e=>{toast('Errore: '+e.type);stateMsg='Errore: '+e.type;render()});
+}
+
+function join(){
+  const code=el('code').value.trim();
+  if(!code){toast('Inserisci il codice stanza');return}
+  if(peer){peer.destroy();peer=null}
+  isHost=false;
+  peer=new Peer();
+  peer.on('open',()=>{
+    const c=peer.connect(code,{reliable:true});
+    conn=c;
+    c.on('open',()=>{
+      el('roomTag').textContent='Connesso a '+code;
+      c.send({t:'hello',name:myName()});
+    });
+    wire(c);
+  });
+  peer.on('error',e=>{toast('Errore: '+e.type);stateMsg='Errore: '+e.type;render()});
+}
+
+function wire(c){
+  c.on('data',m=>{
+    if(!m||!m.t)return;
+    if(m.t==='hello'){
+      names.x=myName();names.o=m.name;
+      el('px').value=names.x;el('po').value=names.o;
+      myMark='x';
+      stateMsg='In attesa del primo turno… <b>'+names.x+'</b> gioca';
+      send({t:'state',board,turn,over,names,scores,msg:stateMsg});
+      render();
+    } else if(m.t==='state'){
+      board=m.board;turn=m.turn;over=m.over;names=m.names;scores=m.scores;stateMsg=m.msg||stateMsg;
+      el('px').value=names.x;el('po').value=names.o;
+      render();
+    } else if(m.t==='move'){
+      board=m.board;turn=m.turn;over=m.over;stateMsg=m.msg;render();
+    } else if(m.t==='newgame'){
+      board=Array(9).fill('');turn='x';over=false;stateMsg='Nuova partita! <b>'+names.x+'</b> gioca';render();
+    } else if(m.t==='reset'){
+      scores={x:0,o:0,d:0};render();
+    }
+  });
+  c.on('close',()=>{stateMsg='Avversario disconnesso';render()});
+  c.on('error',()=>{toast('Errore connessione')});
+}
+
+function send(m){ if(conn&&conn.open) conn.send(m); }
+
+function play(i){
+  if(over||board[i])return;
+  if(!myMark){toast('Entra in una stanza prima di giocare');return}
+  if(turn!==myMark){toast('Non è il tuo turno');return}
+  board[i]=myMark;
+  const w=checkWin(board);
+  if(w){
+    over=true;scores[myMark]++;
+    stateMsg='<b>'+(myMark==='x'?names.x:names.o)+'</b> vince! 🎉';
+    w.forEach(j=>document.querySelectorAll('.cell')[j].classList.add('win'));
+    toast('Vittoria di '+(myMark==='x'?names.x:names.o));
+  } else if(board.every(x=>x)){
+    over=true;scores.d++;stateMsg='Pareggio! 🤝';toast('Pareggio!');
+  } else {
+    turn=myMark==='x'?'o':'x';
+    stateMsg='Turno di <b>'+(turn==='x'?names.x:names.o)+'</b>';
+  }
+  send({t:'move',board,turn,over,msg:stateMsg});
+  render();
+}
+
+function newGame(){
+  if(!myMark){toast('Entra in una stanza prima');return}
+  if(!isHost){toast('Solo chi ha creato la stanza può riavviare');return}
+  board=Array(9).fill('');turn='x';over=false;
+  stateMsg='Nuova partita! <b>'+names.x+'</b> gioca';
+  send({t:'newgame'});
+  render();
+}
+function resetScores(){
+  if(!isHost){toast('Solo l\'host può azzerare');return}
+  scores={x:0,o:0,d:0};send({t:'reset'});render();
+}
+render();
 </script>
 </body>
 </html>
